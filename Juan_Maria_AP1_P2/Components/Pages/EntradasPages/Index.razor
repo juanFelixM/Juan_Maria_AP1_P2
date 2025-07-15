@@ -1,0 +1,220 @@
+@page "/Entrada/Index"
+@using Juan_Maria_AP1_P2.Services
+@using Juan_Maria_AP1_P2.Models
+@using System.Globalization
+@using System.Linq.Expressions
+@inject EntradaServices EntradaServices
+@inject NavigationManager NavigationManager
+@inject IJSRuntime JSRuntime
+
+<PageTitle>Entradas</PageTitle>
+
+<div class="container mt-3">
+    <div class="card shadow-lg">
+        <div class="card-header mb-1 text-center bg-primary text-white">
+            <h3 class="card-title m-1"><strong>Consulta de Entradas</strong></h3>
+        </div>
+
+        <div class="card-body">
+            <div class="row mb-2">
+                <div class="col-md-3">
+                    <label class="form-label"><strong>Filtrar por</strong></label>
+                    <InputSelect class="form-select" @bind-Value="filtro">
+                        <option value="" disabled selected>Elija una opción</option>
+                        <option value="Id">Entrada Id</option>
+                        <option value="Concepto">Concepto</option>
+                    </InputSelect>
+                </div>
+
+                <div class="col-md-4">
+                    <label class="form-label"><strong>Búsqueda</strong></label>
+                    <div class="input-group">
+                        <input class="form-control" @bind="valorFiltro" placeholder="Buscar" />
+                        <button type="button" class="btn btn-primary bi bi-search" @onclick="Buscar"> Buscar</button>
+                    </div>
+                </div>
+
+                <div class="col-5 text-end">
+                    <a href="/Entrada/Create" class="btn btn-success">
+                        <span class="bi bi-plus-square"></span> Crear
+                    </a>
+                </div>
+            </div>
+
+            <div class="row mb-4">
+                <div class="col-md-3">
+                    <label class="form-label"><strong>Desde Fecha</strong></label>
+                    <InputDate class="form-control" @bind-Value="Desde" />
+                </div>
+                <div class="col-md-3">
+                    <label class="form-label"><strong>Hasta Fecha</strong></label>
+                    <InputDate class="form-control" @bind-Value="Hasta" />
+                </div>
+                <div class="col-md-3 d-flex align-items-end">
+                    <button type="button" class="btn btn-warning bi bi-arrow-clockwise" @onclick="Restablecer">
+                        Restablecer Filtros
+                    </button>
+                </div>
+            </div>
+
+            @if (EntradasPaginadas.Any())
+            {
+                <table class="table table-hover table-bordered text-center mt-4">
+                    <thead class="table-striped text-black">
+                        <tr>
+                            <th>Entrada Id</th>
+                            <th>Fecha</th>
+                            <th>Concepto</th>
+                            <th>Cantidad Productos</th>
+                            <th>Peso Total</th>
+                            <th>Editar</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach (var entrada in EntradasPaginadas)
+                        {
+                            var cantidad = entrada.EntradasDetalle.Sum(d => d.Cantidad);
+                            var peso = entrada.EntradasDetalle.Sum(d => d.Cantidad * d.Producto.Peso);
+                            <tr>
+                                <td>@entrada.EntradasId</td>
+                                <td>@entrada.Fecha.ToString("yyyy-MM-dd")</td>
+                                <td>@entrada.Concepto</td>
+                                <td>@cantidad</td>
+                                <td>@peso</td>
+                                <td>
+                                    <a href="/Entrada/Edit/@entrada.EntradasId" class="btn btn-outline-success">
+                                        <span class="bi bi-pencil-fill"></span>
+                                    </a>
+                                </td>
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+
+                <div class="d-flex justify-content-between">
+                    <button class="btn btn-outline-secondary" @onclick="AnteriorPagina" disabled="@(!PuedeRetroceder)">Anterior</button>
+                    <span>Página @PaginaActual de @TotalPaginas</span>
+                    <button class="btn btn-outline-secondary" @onclick="SiguientePagina" disabled="@(!PuedeAvanzar)">Siguiente</button>
+                </div>
+            }
+            else
+            {
+                <div class="alert alert-warning text-center mt-4">No se encontraron resultados.</div>
+            }
+        </div>
+
+        <div class="card-footer d-flex justify-content-between">
+            <label><strong>Cantidad: @FilteredEntradas.Count()</strong></label>
+        </div>
+    </div>
+</div>
+
+@code {
+    private List<Entradas> AllEntradas = new();
+    private List<Entradas> FilteredEntradas = new();
+
+    private int PaginaActual = 1;
+    private int TamañoPagina = 10;
+
+    private IEnumerable<Entradas> EntradasPaginadas =>
+        FilteredEntradas
+            .OrderByDescending(e => e.EntradasId)
+            .Skip((PaginaActual - 1) * TamañoPagina)
+            .Take(TamañoPagina);
+
+    private int TotalPaginas => (int)Math.Ceiling((double)FilteredEntradas.Count / TamañoPagina);
+    private bool PuedeRetroceder => PaginaActual > 1;
+    private bool PuedeAvanzar => PaginaActual < TotalPaginas;
+
+    private string filtro = "";
+    private string valorFiltro = "";
+    private DateTime? Desde { get; set; }
+    private DateTime? Hasta { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+        await CargarDatos();
+        await AplicarFiltros();
+    }
+
+    private async Task CargarDatos()
+    {
+        AllEntradas = await EntradaServices.Listar(e => true);
+    }
+
+    private async Task AplicarFiltros()
+    {
+        PaginaActual = 1;
+        var query = AllEntradas.AsQueryable();
+
+        if (!string.IsNullOrWhiteSpace(valorFiltro))
+        {
+            if (filtro == "Id" && int.TryParse(valorFiltro, out int id))
+            {
+                query = query.Where(e => e.EntradasId == id);
+            }
+            else if (filtro == "Concepto")
+            {
+                query = query.Where(e => e.Concepto != null && e.Concepto.ToLower().Contains(valorFiltro.ToLower()));
+            }
+        }
+
+        if (Desde.HasValue)
+            query = query.Where(e => e.Fecha.Date >= Desde.Value.Date);
+
+        if (Hasta.HasValue)
+            query = query.Where(e => e.Fecha.Date <= Hasta.Value.Date);
+
+        FilteredEntradas = query.ToList();
+        StateHasChanged();
+    }
+
+    private async Task Buscar()
+    {
+        await AplicarFiltros();
+    }
+
+    private async Task Restablecer()
+    {
+        filtro = "";
+        valorFiltro = "";
+        Desde = null;
+        Hasta = null;
+        await AplicarFiltros();
+    }
+
+    private async Task EliminarEntrada(int id)
+    {
+        bool confirmado = await JSRuntime.InvokeAsync<bool>("confirm", $"¿Deseas eliminar la entrada #{id}?");
+        if (confirmado)
+        {
+            if (await EntradaServices.Eliminar(id))
+            {
+                await CargarDatos();
+                await AplicarFiltros();
+            }
+            else
+            {
+                await JSRuntime.InvokeVoidAsync("alert", "No se pudo eliminar la entrada.");
+            }
+        }
+    }
+
+    private void SiguientePagina()
+    {
+        if (PuedeAvanzar)
+        {
+            PaginaActual++;
+            StateHasChanged();
+        }
+    }
+
+    private void AnteriorPagina()
+    {
+        if (PuedeRetroceder)
+        {
+            PaginaActual--;
+            StateHasChanged();
+        }
+    }
+} 
